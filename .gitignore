@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Audio test outputs (generated, not source)
+*.wav
+*.m4a
+
+# uv lock
+uv.lock
+
+# Research outputs
+research/
