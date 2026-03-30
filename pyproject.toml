@@ -1,0 +1,18 @@
+[project]
+name = "project-resonance"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+    "deepfilternet>=0.5.6",
+    "gradio>=6.10.0",
+    "numpy<2.0",
+    "pedalboard>=0.9.22",
+    "pyloudnorm>=0.2.0",
+    "resemble-enhance",
+    "torch>=2.1.0",
+    "torchaudio>=2.1.0",
+    "torchcodec>=0.11.0",
+]
+
+[tool.uv.sources]
+resemble-enhance = { git = "https://github.com/resemble-ai/resemble-enhance.git" }
