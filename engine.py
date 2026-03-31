@@ -1,35 +1,71 @@
+import types
+import sys
+import torchaudio
+
+if not hasattr(torchaudio, "backend"):
+    backend_module = types.ModuleType("torchaudio.backend")
+    common_module = types.ModuleType("torchaudio.backend.common")
+
+    class AudioMetaData:
+        def __init__(
+            self,
+            sample_rate: int = 0,
+            num_frames: int = 0,
+            num_channels: int = 0,
+            bits_per_sample: int = 0,
+            encoding: str = "",
+        ) -> None:
+            self.sample_rate = sample_rate
+            self.num_frames = num_frames
+            self.num_channels = num_channels
+            self.bits_per_sample = bits_per_sample
+            self.encoding = encoding
+
+    common_module.AudioMetaData = AudioMetaData
+    backend_module.common = common_module
+    sys.modules["torchaudio.backend"] = backend_module
+    sys.modules["torchaudio.backend.common"] = common_module
+    torchaudio.backend = backend_module
+
 import logging
-import os
-from functools import cache
 
 import numpy as np
+import onnxruntime as ort
 import pyloudnorm as pyln
 import torch
-from pedalboard import Compressor, HighpassFilter, HighShelfFilter, Limiter, PeakFilter, Pedalboard
+from df.enhance import enhance as df_enhance
+from df.enhance import init_df
+from huggingface_hub import hf_hub_download
+from pedalboard import (
+    Compressor,
+    HighpassFilter,
+    HighShelfFilter,
+    Limiter,
+    PeakFilter,
+    Pedalboard,
+)
 
 
 logger = logging.getLogger(__name__)
 
 
-@cache
-def _get_denoise():
-    os.environ.setdefault("DS_ACCELERATOR", "cpu")
-    from resemble_enhance.denoiser.inference import denoise as denoise_fn
-
-    return denoise_fn
-
-
 class PodcastEngine:
     def __init__(self) -> None:
-        if torch.backends.mps.is_available() and torch.backends.mps.is_built():
-            self.device: str = "mps"
-        else:
-            self.device = "cpu"
-            logger.warning("MPS unavailable or PyTorch not built with MPS support; falling back to CPU.")
+        logger.info("Loading DeepFilterNet3...")
+        self._df_model, self._df_state, _ = init_df()
+        self._df_sr = self._df_state.sr()
+        logger.info("DeepFilterNet3 loaded (sr=%d)", self._df_sr)
 
-        logger.info("Using device: %s", self.device)
+        logger.info("Loading FlashSR ONNX model...")
+        model_path = hf_hub_download(
+            repo_id="YatharthS/FlashSR",
+            filename="model.onnx",
+            subfolder="onnx",
+        )
+        self._sr_session = ort.InferenceSession(model_path)
+        logger.info("FlashSR loaded")
 
-        self._mastering_board = Pedalboard(
+        self._mastering = Pedalboard(
             [
                 HighpassFilter(cutoff_frequency_hz=80),
                 PeakFilter(cutoff_frequency_hz=300, gain_db=-3.0, q=1.0),
@@ -40,97 +76,55 @@ class PodcastEngine:
                 HighShelfFilter(cutoff_frequency_hz=10000, gain_db=2.0, q=0.7),
             ]
         )
-        self._limiter_board = Pedalboard([Limiter(threshold_db=-1.5)])
-
-    def denoise_only(self, audio_tensor: torch.Tensor, sample_rate: int) -> tuple[torch.Tensor, int]:
-        audio_np, output_sr = self._run_denoise(audio_tensor, sample_rate)
-        return self._to_output_tensor(audio_np), output_sr
+        self._limiter = Pedalboard([Limiter(threshold_db=-1.5)])
+        logger.info("Mastering chain ready")
 
     def enhance(self, audio_tensor: torch.Tensor, sample_rate: int) -> tuple[torch.Tensor, int]:
-        audio_np, output_sr = self._run_denoise(audio_tensor, sample_rate)
-
-        mastered = self._mastering_board(
-            self._to_pedalboard_input(audio_np),
-            sample_rate=output_sr,
-            reset=True,
-        )
-
-        normalized = self._normalize_loudness(mastered, output_sr)
-        limited = self._limiter_board(normalized, sample_rate=output_sr, reset=True)
-
-        return self._to_output_tensor(limited), output_sr
-
-    def _run_denoise(self, audio_tensor: torch.Tensor, sample_rate: int) -> tuple[np.ndarray, int]:
         if audio_tensor.ndim != 1:
-            raise ValueError("audio_tensor must be a 1D mono waveform tensor.")
+            raise ValueError("audio_tensor must be 1D mono")
 
-        logger.debug("Running denoise-only stage on %d samples at %d Hz.", audio_tensor.numel(), sample_rate)
-
-        input_tensor = audio_tensor.detach().flatten().to(dtype=torch.float32).cpu().contiguous()
-        result_tensor, output_sr = _get_denoise()(
-            input_tensor,
+        audio_tensor = audio_tensor.detach().flatten().to(dtype=torch.float32).cpu().contiguous()
+        logger.info(
+            "Starting enhancement for %d samples at %d Hz",
+            audio_tensor.numel(),
             sample_rate,
-            run_dir=None,
-            device=self.device,
         )
-        result_tensor = result_tensor.detach().cpu().flatten().to(dtype=torch.float32).contiguous()
-        return result_tensor.numpy(), output_sr
 
-    def _normalize_loudness(self, audio_np: np.ndarray, sample_rate: int) -> np.ndarray:
-        audio_for_lufs = self._to_loudness_input(audio_np)
-        meter = pyln.Meter(sample_rate)
+        if sample_rate != self._df_sr:
+            logger.info("Resampling input from %d Hz to %d Hz for DeepFilterNet", sample_rate, self._df_sr)
+            audio_tensor = torchaudio.functional.resample(audio_tensor, sample_rate, self._df_sr)
 
-        try:
-            loudness = meter.integrated_loudness(audio_for_lufs)
-        except ValueError as exc:
-            logger.warning("LUFS measurement failed; skipping normalization: %s", exc)
-            return self._to_pedalboard_input(audio_np)
+        audio_2d = audio_tensor.unsqueeze(0)
+        denoised = df_enhance(self._df_model, self._df_state, audio_2d)
+        logger.info("Stage 1 complete: DeepFilterNet denoise")
 
-        if not np.isfinite(loudness):
-            logger.warning("LUFS measurement returned a non-finite value; skipping normalization.")
-            return self._to_pedalboard_input(audio_np)
+        denoised_16k = torchaudio.functional.resample(
+            denoised.squeeze(0).detach().cpu().contiguous(),
+            self._df_sr,
+            16000,
+        )
+        sr_input = denoised_16k.numpy().astype(np.float32, copy=False)[np.newaxis, :]
+        sr_output = self._sr_session.run(["reconstruction"], {"audio_values": sr_input})[0]
+        audio_np = np.ascontiguousarray(sr_output.astype(np.float32, copy=False))
+        logger.info("Stage 2 complete: FlashSR super-resolution")
 
-        normalized = pyln.normalize.loudness(audio_for_lufs, loudness, -16.0)
-        return self._from_loudness_output(normalized)
+        mastered = self._mastering(audio_np, sample_rate=48000, reset=True)
+        logger.info("Stage 3 complete: DSP mastering")
 
-    @staticmethod
-    def _to_pedalboard_input(audio_np: np.ndarray) -> np.ndarray:
-        audio_np = np.asarray(audio_np, dtype=np.float32)
-        if audio_np.ndim == 1:
-            return np.ascontiguousarray(audio_np[np.newaxis, :])
-        if audio_np.ndim == 2:
-            return np.ascontiguousarray(audio_np)
-        raise ValueError("Audio must be a 1D or 2D numpy array.")
+        mono = np.ascontiguousarray(mastered[0].astype(np.float64, copy=False))
+        meter = pyln.Meter(48000)
+        loudness = meter.integrated_loudness(mono)
+        if np.isfinite(loudness):
+            normalized = pyln.normalize.loudness(mono, loudness, -16.0).astype(np.float32)
+        else:
+            logger.warning("LUFS non-finite, skipping normalization")
+            normalized = mono.astype(np.float32)
 
-    @staticmethod
-    def _to_loudness_input(audio_np: np.ndarray) -> np.ndarray:
-        audio_np = np.asarray(audio_np, dtype=np.float64)
-        if audio_np.ndim == 1:
-            return np.ascontiguousarray(audio_np)
-        if audio_np.ndim == 2:
-            return np.ascontiguousarray(audio_np.T)
-        raise ValueError("Audio must be a 1D or 2D numpy array.")
+        limited = self._limiter(normalized[np.newaxis, :], sample_rate=48000, reset=True)
+        logger.info("Stage 4 complete: LUFS normalization + limiter")
 
-    @staticmethod
-    def _from_loudness_output(audio_np: np.ndarray) -> np.ndarray:
-        audio_np = np.asarray(audio_np, dtype=np.float32)
-        if audio_np.ndim == 1:
-            return np.ascontiguousarray(audio_np[np.newaxis, :])
-        if audio_np.ndim == 2:
-            return np.ascontiguousarray(audio_np.T)
-        raise ValueError("Audio must be a 1D or 2D numpy array.")
-
-    @staticmethod
-    def _to_output_tensor(audio_np: np.ndarray) -> torch.Tensor:
-        audio_np = np.asarray(audio_np, dtype=np.float32)
-        if audio_np.ndim == 2:
-            if audio_np.shape[0] != 1:
-                raise ValueError("Engine output must be mono.")
-            audio_np = audio_np[0]
-        elif audio_np.ndim != 1:
-            raise ValueError("Engine output must be a 1D mono waveform.")
-
-        return torch.from_numpy(np.ascontiguousarray(audio_np))
+        result = torch.from_numpy(np.ascontiguousarray(limited[0]))
+        return result, 48000
 
 
 ResembleEngine = PodcastEngine
