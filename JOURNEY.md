@@ -144,3 +144,63 @@ Output (.wav)
 4. **DeepFilterNet3 (1M params) outperformed resemble-enhance denoiser (10M params)** for this use case. Purpose-built tools beat general-purpose tools.
 
 5. **The "tearing at loudness" was caused by the absence of a limiter and compressor** — the raw model output had no dynamic range control. Adding the professional mastering chain fixed it.
+
+## Phase 7: ClearVoice MossFormer2 (2026-03-31)
+
+**Problem:** v2 (DeepFilterNet + Pedalboard) had noise gone but lacked richness. v3 (DeepFilterNet + FlashSR + Pedalboard) introduced popping sounds from chunk boundary artifacts in FlashSR.
+
+**Discovery:** ClearerVoice-Studio (Alibaba, 4k stars) bundles MossFormer2_SE_48K — a discriminative speech enhancement model that processes at 48kHz natively. It handles enhancement + quality improvement in one pass, no chunking needed.
+
+**Dependency hell:** AudioSR pinned numpy==1.23.5 (won't build on Python 3.13). ClearVoice pinned librosa==0.10.2 and soundfile==0.12.1. Had to carefully resolve conflicts by removing competing pins.
+
+**v4 test (MossFormer2 only):** Quality improved but noise came back — MossFormer2 enhances but doesn't aggressively denoise. Needed both models.
+
+**v5 final pipeline (the breakthrough):**
+```
+DeepFilterNet3 (noise kill) → MossFormer2 (enhance) → Pedalboard (master) → LUFS (-18) → Limiter
+```
+
+**Result:** ~85% podcast quality. Noise eliminated, loudness correct, no artifacts, no popping. Entire 2-minute recording processes in ~15 seconds total (DeepFilterNet ~3s + MossFormer2 ~7s + DSP instant).
+
+**Remaining gap:** Studio mic character — proximity effect warmth (80-250Hz), harmonic saturation/richness, voice-specific EQ tuning. This is the "last mile" problem — the difference between clean audio and audio that sounds like it was recorded on a $500 condenser mic.
+
+## Phase 8: The Last Mile (NEXT)
+
+Candidates for closing the remaining 15%:
+- **Proximity effect simulation** — low-shelf warmth boost tuned for voice
+- **Harmonic saturation** — subtle tube/tape saturation (pedalboard has no saturation, may need a VST plugin loaded via pedalboard's VST3 loader)
+- **FINALLY (Samsung, NeurIPS 2024)** — unofficial implementation exists, claims "studio-like quality" from any input
+- **Voice-specific EQ** — analyze the recording's spectral profile and tune EQ to complement rather than generic settings
+- **Stereo widening / room simulation** — subtle early reflections that add "space" without muddiness
+
+## Version History
+
+| Version | Pipeline | Result |
+|---------|----------|--------|
+| v1 | resemble-enhance (full CFM, MPS) | Pure noise |
+| v1b | resemble-enhance (full CFM, CPU) | Robotic, artifacts |
+| sweep | 7 parameter configs on CPU | All had tearing |
+| v2 | resemble-enhance denoise + Pedalboard | 75-80%, noise still present |
+| v3 | DeepFilterNet + FlashSR + Pedalboard | Popping at chunk boundaries |
+| v4 | MossFormer2 + Pedalboard | Good but noise returned |
+| v5 | DeepFilterNet + MossFormer2 + Pedalboard | ~85%, noise gone, lacking studio character |
+
+## What We Learned (Updated)
+
+1. **Generative ≠ better.** For decent input audio, discriminative models beat generative re-synthesizers.
+
+2. **MPS is not CUDA.** Iterative ODE solvers produce noise on Apple MPS.
+
+3. **Order matters.** The professional podcast chain is 8 steps in a specific order.
+
+4. **Purpose-built > general-purpose.** DeepFilterNet (1M params) outperformed resemble-enhance denoiser (10M params).
+
+5. **No limiter = tearing.** Raw model output needs dynamic range control.
+
+6. **Chunking creates artifacts.** Processing the full file in one pass (MossFormer2, DeepFilterNet) is better than OLA chunking when the model supports it. FlashSR's chunk-by-chunk super-resolution caused popping.
+
+7. **Two specialized models > one generalist.** DeepFilterNet (noise only) + MossFormer2 (enhance only) outperformed MossFormer2 alone. Each model does its one job well.
+
+8. **Dependency pinning is the real enemy.** AudioSR, resemble-enhance, and ClearVoice all pin stale numpy/librosa versions. More time was spent fighting dependency conflicts than writing code.
+
+9. **The last 15% is mic physics, not algorithms.** The gap between "clean" and "studio quality" is proximity effect, harmonic richness, and transient detail — things a phone mic physically cannot capture. Closing this gap requires either generative modeling (FINALLY) or DSP simulation (saturation, room modeling).
