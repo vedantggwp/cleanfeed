@@ -24,7 +24,14 @@
 - `diagnose.py` — Layer-by-layer diagnostic (MPS vs CPU, denoise vs enhance)
 - `sweep.py` — resemble-enhance 7-config parameter sweep
 
+## Planning & Documentation
+- `TODOS.md` — Full task list: Sprints 1-5, dependency graph, research findings
+- `docs/system-architecture.html` — Visual system architecture (open in browser)
+
 ## Recent Changes
+- 2026-04-01: Product named `cleanfeed` — PyPI available, no trademark conflicts
+- 2026-04-01: Created `TODOS.md` — 5-sprint roadmap from benchmark to real-time
+- 2026-04-01: Created `docs/system-architecture.html` — full visual architecture
 - 2026-04-01: Rewrote `engine.py` — FlashSR replaced with MossFormer2, LUFS -18, clean 5-stage pipeline
 - 2026-04-01: Simplified `processor.py` — removed OLA chunking (115 → 55 lines)
 - 2026-04-01: Fixed `cli.py` — ffmpeg converts to 48kHz (was 16kHz)

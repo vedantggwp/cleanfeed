@@ -1,0 +1,981 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Project Resonance — System Architecture</title>
+<style>
+  :root {
+    --bg: #fafafa;
+    --fg: #1a1a1a;
+    --muted: #666;
+    --border: #d4d4d4;
+    --accent: #333;
+    --card-bg: #fff;
+    --card-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
+    --phase-active: #1a1a1a;
+    --phase-future: #999;
+    --tag-bg: #f0f0f0;
+    --tag-border: #ccc;
+    --success: #2d7a3a;
+    --warning: #8a6d00;
+    --danger: #b91c1c;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.6;
+    padding: 3rem 2rem;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  h1 {
+    font-size: 1.8rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    margin-bottom: 0.25rem;
+  }
+
+  h1 span { color: var(--muted); font-weight: 400; }
+
+  .subtitle {
+    color: var(--muted);
+    font-size: 0.85rem;
+    margin-bottom: 3rem;
+    padding-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  h2 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    margin: 3rem 0 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  h3 {
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    margin: 2rem 0 0.75rem;
+  }
+
+  .tag {
+    display: inline-block;
+    font-size: 0.7rem;
+    padding: 0.15rem 0.5rem;
+    border: 1px solid var(--tag-border);
+    border-radius: 3px;
+    background: var(--tag-bg);
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-right: 0.25rem;
+  }
+
+  .tag.active { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+  .tag.success { background: #ecfdf5; color: var(--success); border-color: #a7f3d0; }
+  .tag.warning { background: #fffbeb; color: var(--warning); border-color: #fde68a; }
+  .tag.danger { background: #fef2f2; color: var(--danger); border-color: #fecaca; }
+
+  /* ── Pipeline Diagram ── */
+  .pipeline {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin: 1.5rem 0;
+  }
+
+  .pipeline-stage {
+    display: flex;
+    align-items: stretch;
+    min-height: 60px;
+  }
+
+  .pipeline-number {
+    width: 48px;
+    min-width: 48px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .pipeline-number .dot {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--fg);
+    color: var(--bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  .pipeline-number .line {
+    width: 2px;
+    flex: 1;
+    background: var(--border);
+  }
+
+  .pipeline-stage:last-child .pipeline-number .line { display: none; }
+
+  .pipeline-card {
+    flex: 1;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.75rem 1rem;
+    margin: 0 0 0.5rem 0.75rem;
+    box-shadow: var(--card-shadow);
+  }
+
+  .pipeline-card .name {
+    font-weight: 600;
+    font-size: 0.85rem;
+    margin-bottom: 0.15rem;
+  }
+
+  .pipeline-card .detail {
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+
+  .pipeline-card .tech {
+    font-size: 0.7rem;
+    color: var(--muted);
+    margin-top: 0.25rem;
+    font-style: italic;
+  }
+
+  /* ── Architecture Grid ── */
+  .arch-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 0.75rem;
+    margin: 1.5rem 0;
+  }
+
+  .arch-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1rem;
+    box-shadow: var(--card-shadow);
+  }
+
+  .arch-card.span-3 { grid-column: span 3; }
+  .arch-card.span-2 { grid-column: span 2; }
+
+  .arch-card .label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    margin-bottom: 0.25rem;
+  }
+
+  .arch-card .title {
+    font-weight: 600;
+    font-size: 0.9rem;
+    margin-bottom: 0.35rem;
+  }
+
+  .arch-card .desc {
+    font-size: 0.75rem;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  .arch-card .file {
+    font-size: 0.7rem;
+    color: var(--accent);
+    background: var(--tag-bg);
+    padding: 0.1rem 0.4rem;
+    border-radius: 3px;
+    display: inline-block;
+    margin-top: 0.35rem;
+  }
+
+  /* ── Arrow connector ── */
+  .connector {
+    text-align: center;
+    color: var(--border);
+    font-size: 1.2rem;
+    padding: 0.25rem 0;
+    letter-spacing: 0.5em;
+  }
+
+  /* ── Phase Timeline ── */
+  .timeline {
+    display: flex;
+    gap: 0;
+    margin: 1.5rem 0;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  .timeline-phase {
+    flex: 1;
+    padding: 1rem;
+    border-right: 1px solid var(--border);
+    position: relative;
+  }
+
+  .timeline-phase:last-child { border-right: none; }
+
+  .timeline-phase.current {
+    background: var(--fg);
+    color: var(--bg);
+  }
+
+  .timeline-phase.current .phase-label { color: rgba(255,255,255,0.6); }
+  .timeline-phase.current .phase-desc { color: rgba(255,255,255,0.8); }
+
+  .timeline-phase.future {
+    background: var(--card-bg);
+    color: var(--phase-future);
+  }
+
+  .phase-label {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin-bottom: 0.25rem;
+  }
+
+  .phase-title {
+    font-weight: 700;
+    font-size: 0.85rem;
+    margin-bottom: 0.25rem;
+  }
+
+  .phase-desc {
+    font-size: 0.7rem;
+    color: var(--muted);
+    line-height: 1.4;
+  }
+
+  /* ── Feedback Flow ── */
+  .flow-container {
+    margin: 1.5rem 0;
+  }
+
+  .flow-row {
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+    align-items: stretch;
+  }
+
+  .flow-box {
+    flex: 1;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.75rem 1rem;
+    box-shadow: var(--card-shadow);
+  }
+
+  .flow-box .title {
+    font-weight: 600;
+    font-size: 0.8rem;
+    margin-bottom: 0.25rem;
+  }
+
+  .flow-box .desc {
+    font-size: 0.7rem;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  .flow-box.dark {
+    background: var(--fg);
+    color: var(--bg);
+    border-color: var(--fg);
+  }
+
+  .flow-box.dark .desc { color: rgba(255,255,255,0.7); }
+
+  .flow-arrow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 32px;
+    color: var(--border);
+    font-size: 1.2rem;
+  }
+
+  /* ── Privacy Tiers ── */
+  .tiers {
+    display: flex;
+    gap: 0.75rem;
+    margin: 1.5rem 0;
+  }
+
+  .tier {
+    flex: 1;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1rem;
+    box-shadow: var(--card-shadow);
+    position: relative;
+  }
+
+  .tier .tier-num {
+    font-size: 2rem;
+    font-weight: 800;
+    color: var(--border);
+    position: absolute;
+    top: 0.5rem;
+    right: 0.75rem;
+    line-height: 1;
+  }
+
+  .tier .title {
+    font-weight: 600;
+    font-size: 0.8rem;
+    margin-bottom: 0.35rem;
+  }
+
+  .tier .desc {
+    font-size: 0.7rem;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  .tier .what {
+    font-size: 0.7rem;
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--border);
+    line-height: 1.5;
+  }
+
+  /* ── Semantic Controls ── */
+  .controls-demo {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    box-shadow: var(--card-shadow);
+  }
+
+  .control-row {
+    display: flex;
+    align-items: center;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid #f0f0f0;
+  }
+
+  .control-row:last-child { border-bottom: none; }
+
+  .control-name {
+    width: 120px;
+    font-weight: 600;
+    font-size: 0.8rem;
+  }
+
+  .control-dots {
+    display: flex;
+    gap: 6px;
+    margin: 0 1rem;
+  }
+
+  .control-dots .dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 2px solid var(--fg);
+  }
+
+  .control-dots .dot.filled { background: var(--fg); }
+
+  .control-maps {
+    font-size: 0.65rem;
+    color: var(--muted);
+    flex: 1;
+    text-align: right;
+    font-style: italic;
+  }
+
+  /* ── Realtime Readiness ── */
+  .readiness-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.5rem 0;
+    font-size: 0.75rem;
+  }
+
+  .readiness-table th {
+    text-align: left;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 2px solid var(--fg);
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+  }
+
+  .readiness-table td {
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+
+  /* ── Footer ── */
+  .footer {
+    margin-top: 4rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 0.7rem;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  /* ── Dream State ── */
+  .dream-state {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    margin: 1.5rem 0;
+  }
+
+  .dream-node {
+    flex: 1;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.75rem;
+    box-shadow: var(--card-shadow);
+    text-align: center;
+  }
+
+  .dream-node.current { border-color: var(--fg); border-width: 2px; }
+
+  .dream-node .label {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    margin-bottom: 0.25rem;
+  }
+
+  .dream-node .text {
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+
+  .dream-arrow {
+    min-width: 40px;
+    text-align: center;
+    color: var(--border);
+    font-size: 1.5rem;
+  }
+
+  /* ── Data Schema ── */
+  .schema {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.25rem;
+    margin: 1.5rem 0;
+    box-shadow: var(--card-shadow);
+    font-size: 0.75rem;
+  }
+
+  .schema-row {
+    display: flex;
+    padding: 0.2rem 0;
+    border-bottom: 1px solid #f5f5f5;
+  }
+
+  .schema-row:last-child { border-bottom: none; }
+
+  .schema-field {
+    width: 180px;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+
+  .schema-type {
+    width: 140px;
+    color: var(--muted);
+    flex-shrink: 0;
+    font-style: italic;
+  }
+
+  .schema-desc {
+    color: var(--muted);
+    flex: 1;
+  }
+
+  .schema-divider {
+    border: none;
+    border-top: 1px dashed var(--border);
+    margin: 0.4rem 0;
+  }
+
+  @media (max-width: 768px) {
+    .arch-grid { grid-template-columns: 1fr; }
+    .arch-card.span-3, .arch-card.span-2 { grid-column: span 1; }
+    .timeline { flex-direction: column; }
+    .timeline-phase { border-right: none; border-bottom: 1px solid var(--border); }
+    .tiers { flex-direction: column; }
+    .flow-row { flex-direction: column; }
+    .flow-arrow { transform: rotate(90deg); min-height: 24px; min-width: auto; }
+    .dream-state { flex-direction: column; }
+    .dream-arrow { transform: rotate(90deg); min-height: 32px; }
+  }
+</style>
+</head>
+<body>
+
+<h1>Project Resonance <span>/ System Architecture</span></h1>
+<p class="subtitle">Local, privacy-first audio restoration. Phone recording in, podcast-quality out. Version 6 &mdash; April 2026</p>
+
+<!-- ════════════════════════════════════════════════ -->
+<h2>Product Roadmap</h2>
+
+<div class="timeline">
+  <div class="timeline-phase current">
+    <div class="phase-label">Phase 1 &mdash; Now</div>
+    <div class="phase-title">CLI Tool</div>
+    <div class="phase-desc">pip install, one command. Works on any audio format. Package as Python library + CLI.</div>
+  </div>
+  <div class="timeline-phase future">
+    <div class="phase-label">Phase 2</div>
+    <div class="phase-title">Validation Demo</div>
+    <div class="phase-desc">HuggingFace Space. Strangers upload audio. Collect feedback. Learn what breaks across voices, mics, noise.</div>
+  </div>
+  <div class="timeline-phase future">
+    <div class="phase-label">Phase 3</div>
+    <div class="phase-title">Consumer UI</div>
+    <div class="phase-desc">Semantic controls: Clarity, Warmth, Brightness, Loudness, Smoothness. AI profile suggestions. Better Audacity for everyone.</div>
+  </div>
+  <div class="timeline-phase future">
+    <div class="phase-label">End State</div>
+    <div class="phase-title">Real-Time On-Device</div>
+    <div class="phase-desc">System-level audio filter. Every meeting, every video, podcast quality in real time. Your ears never suffer.</div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════ -->
+<h2>Current Pipeline &mdash; 5 Stages</h2>
+
+<div class="pipeline">
+  <div class="pipeline-stage">
+    <div class="pipeline-number"><div class="dot">1</div><div class="line"></div></div>
+    <div class="pipeline-card">
+      <div class="name">Noise Suppression</div>
+      <div class="detail">Kills background noise &mdash; hum, room tone, fans, street. Leaves voice untouched.</div>
+      <div class="tech">DeepFilterNet3 &bull; 1M params &bull; Rust/C++ core &bull; Real-time capable &bull; ~3s / 2min</div>
+    </div>
+  </div>
+  <div class="pipeline-stage">
+    <div class="pipeline-number"><div class="dot">2</div><div class="line"></div></div>
+    <div class="pipeline-card">
+      <div class="name">Speech Enhancement</div>
+      <div class="detail">Improves voice clarity, fills in spectral detail lost by phone mics. Single-pass discriminative model.</div>
+      <div class="tech">MossFormer2_SE_48K (ClearVoice/Alibaba) &bull; 48kHz native &bull; File I/O mode &bull; ~7s / 2min</div>
+    </div>
+  </div>
+  <div class="pipeline-stage">
+    <div class="pipeline-number"><div class="dot">3</div><div class="line"></div></div>
+    <div class="pipeline-card">
+      <div class="name">Professional Mastering</div>
+      <div class="detail">The same DSP chain used by podcast engineers: high-pass, EQ, dual compression, de-essing, presence, air.</div>
+      <div class="tech">Spotify Pedalboard &bull; C++ JUCE core &bull; HPF 80Hz &rarr; EQ -3dB@300Hz &rarr; Comp 2:1+3:1 &rarr; De-ess -4dB@6kHz &rarr; +2.5dB@3kHz &rarr; +2dB@10kHz</div>
+    </div>
+  </div>
+  <div class="pipeline-stage">
+    <div class="pipeline-number"><div class="dot">4</div><div class="line"></div></div>
+    <div class="pipeline-card">
+      <div class="name">Loudness Normalization</div>
+      <div class="detail">Targets &minus;18 LUFS &mdash; the standard for podcast distribution platforms.</div>
+      <div class="tech">pyloudnorm &bull; ITU-R BS.1770 measurement &bull; EBU R128 normalization</div>
+    </div>
+  </div>
+  <div class="pipeline-stage">
+    <div class="pipeline-number"><div class="dot">5</div><div class="line"></div></div>
+    <div class="pipeline-card">
+      <div class="name">Brick-Wall Limiter</div>
+      <div class="detail">Prevents clipping. Ceiling at &minus;1.5 dB ensures safe playback on all devices.</div>
+      <div class="tech">Pedalboard Limiter &bull; &minus;1.5 dB ceiling &bull; True peak limiting</div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════ -->
+<h2>Module Architecture</h2>
+
+<h3>User Surfaces</h3>
+<div class="arch-grid">
+  <div class="arch-card">
+    <div class="label">Phase 1</div>
+    <div class="title">CLI</div>
+    <div class="desc">Command-line interface. Format conversion via ffmpeg. Signal handling + cleanup.</div>
+    <div class="file">cli.py</div>
+  </div>
+  <div class="arch-card">
+    <div class="label">Phase 2</div>
+    <div class="title">API Server</div>
+    <div class="desc">FastAPI endpoints for programmatic access. HuggingFace Spaces deployment.</div>
+    <div class="file">api.py</div>
+  </div>
+  <div class="arch-card">
+    <div class="label">Phase 3</div>
+    <div class="title">Consumer UI</div>
+    <div class="desc">Gradio / web UI with semantic controls. Drag-and-drop. AI profile suggestion.</div>
+    <div class="file">app.py</div>
+  </div>
+</div>
+
+<div class="connector">&darr;</div>
+
+<h3>Public API Layer</h3>
+<div class="arch-grid">
+  <div class="arch-card span-3">
+    <div class="label">Library Interface</div>
+    <div class="title">import cleanfeed</div>
+    <div class="desc">
+      <code>cleanfeed.enhance("input.m4a", "output.wav")</code><br>
+      <code>engine = cleanfeed.Engine(preset="podcast")</code><br>
+      <code>enhanced, sr = engine.enhance(tensor, sample_rate)</code>
+    </div>
+    <div class="file">__init__.py</div> <div class="file">presets.py</div>
+  </div>
+</div>
+
+<div class="connector">&darr;</div>
+
+<h3>Core</h3>
+<div class="arch-grid">
+  <div class="arch-card span-2">
+    <div class="label">Processing Engine</div>
+    <div class="title">PodcastEngine</div>
+    <div class="desc">5-stage pipeline. DeepFilterNet &rarr; MossFormer2 &rarr; Pedalboard &rarr; LUFS &rarr; Limiter. Pure tensor-in, tensor-out. No user-facing file I/O.</div>
+    <div class="file">engine.py</div>
+  </div>
+  <div class="arch-card">
+    <div class="label">File I/O</div>
+    <div class="title">Processor</div>
+    <div class="desc">Loads audio, converts to mono, passes to engine, saves output. Owns the file boundary.</div>
+    <div class="file">processor.py</div>
+  </div>
+</div>
+
+<div class="connector">&darr;</div>
+
+<h3>Infrastructure</h3>
+<div class="arch-grid">
+  <div class="arch-card">
+    <div class="label">Compatibility</div>
+    <div class="title">_compat.py</div>
+    <div class="desc">Isolates the torchaudio.backend monkey-patch. One place, documented, tested.</div>
+    <div class="tag warning">tech debt</div>
+  </div>
+  <div class="arch-card">
+    <div class="label">Quality Metrics</div>
+    <div class="title">metrics.py</div>
+    <div class="desc">DNSMOS blind quality estimation. PESQ when reference available. Spectral analysis.</div>
+    <div class="tag">phase 2</div>
+  </div>
+  <div class="arch-card">
+    <div class="label">Feedback</div>
+    <div class="title">feedback.py</div>
+    <div class="desc">Opt-in submission to HuggingFace Dataset. Three consent tiers. No telemetry.</div>
+    <div class="tag">phase 2</div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════ -->
+<h2>Semantic Controls &mdash; Phase 3 Vision</h2>
+<p style="font-size: 0.8rem; color: var(--muted); margin: 0.5rem 0 0.5rem;">Human language for audio effects. What the user sees vs what the DSP does.</p>
+
+<div class="controls-demo">
+  <div class="control-row">
+    <div class="control-name">Clarity</div>
+    <div class="control-dots">
+      <div class="dot filled"></div>
+      <div class="dot filled"></div>
+      <div class="dot filled"></div>
+      <div class="dot filled"></div>
+      <div class="dot"></div>
+    </div>
+    <div class="control-maps">&rarr; DeepFilterNet attenuation + MossFormer2 strength</div>
+  </div>
+  <div class="control-row">
+    <div class="control-name">Warmth</div>
+    <div class="control-dots">
+      <div class="dot filled"></div>
+      <div class="dot filled"></div>
+      <div class="dot filled"></div>
+      <div class="dot"></div>
+      <div class="dot"></div>
+    </div>
+    <div class="control-maps">&rarr; Low-shelf EQ + tube saturation drive</div>
+  </div>
+  <div class="control-row">
+    <div class="control-name">Brightness</div>
+    <div class="control-dots">
+      <div class="dot filled"></div>
+      <div class="dot filled"></div>
+      <div class="dot filled"></div>
+      <div class="dot"></div>
+      <div class="dot"></div>
+    </div>
+    <div class="control-maps">&rarr; Presence boost (3kHz) + air boost (10kHz)</div>
+  </div>
+  <div class="control-row">
+    <div class="control-name">Loudness</div>
+    <div class="control-dots">
+      <div class="dot filled"></div>
+      <div class="dot filled"></div>
+      <div class="dot filled"></div>
+      <div class="dot filled"></div>
+      <div class="dot"></div>
+    </div>
+    <div class="control-maps">&rarr; LUFS target (-24 to -14) + compressor ratio</div>
+  </div>
+  <div class="control-row">
+    <div class="control-name">Smoothness</div>
+    <div class="control-dots">
+      <div class="dot filled"></div>
+      <div class="dot filled"></div>
+      <div class="dot"></div>
+      <div class="dot"></div>
+      <div class="dot"></div>
+    </div>
+    <div class="control-maps">&rarr; De-esser strength + compressor attack/release</div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════ -->
+<h2>Feedback Loop Architecture</h2>
+
+<div class="flow-container">
+  <div class="flow-row">
+    <div class="flow-box">
+      <div class="title">CLI / Space / App</div>
+      <div class="desc">User processes audio. Locally. Always.</div>
+    </div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-box">
+      <div class="title">Opt-In Prompt</div>
+      <div class="desc">"How'd it sound?" Rating + optional issue tags. Per-submission consent. Never automatic.</div>
+    </div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-box">
+      <div class="title">Consent Tier Selection</div>
+      <div class="desc">Metadata only, or metadata + audio, or metadata + audio + contact. User picks every time.</div>
+    </div>
+  </div>
+
+  <div class="connector">&darr;</div>
+
+  <div class="flow-row">
+    <div class="flow-box dark">
+      <div class="title">HuggingFace Dataset</div>
+      <div class="desc">Public, versioned, inspectable. Users can see exactly what's collected. Audio column support built in.</div>
+    </div>
+  </div>
+
+  <div class="connector">&darr;</div>
+
+  <div class="flow-row">
+    <div class="flow-box">
+      <div class="title">Automated Analysis</div>
+      <div class="desc">Cluster by spectral profile. Quality distribution per cluster. Find where the pipeline fails. Generate candidate parameter adjustments.</div>
+    </div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-box">
+      <div class="title">Manual Review</div>
+      <div class="desc">Listen to 1-2 star submissions. Categorize failure mode. Decide: parameter tune vs new model vs wontfix.</div>
+    </div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-box">
+      <div class="title">Pipeline Update</div>
+      <div class="desc">New presets from real clusters. Updated parameters. Regression tests pinned to real audio scores.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════ -->
+<h2>Privacy Model</h2>
+
+<div class="tiers">
+  <div class="tier">
+    <div class="tier-num">1</div>
+    <div class="title">Metadata Only</div>
+    <div class="desc">No audio leaves your device.</div>
+    <div class="what">
+      <strong>Sends:</strong> rating, issue tags, device info, spectral stats, pipeline version, duration<br>
+      <strong>Value:</strong> know WHAT fails
+    </div>
+  </div>
+  <div class="tier">
+    <div class="tier-num">2</div>
+    <div class="title">Metadata + Audio</div>
+    <div class="desc">Input and output .wav files included.</div>
+    <div class="what">
+      <strong>Sends:</strong> everything in Tier 1 + audio files<br>
+      <strong>Value:</strong> hear WHY it fails<br>
+      <strong>Consent:</strong> explicit per-submission, deletion available via submission ID
+    </div>
+  </div>
+  <div class="tier">
+    <div class="tier-num">3</div>
+    <div class="title">Full Research</div>
+    <div class="desc">Contact info for follow-up.</div>
+    <div class="what">
+      <strong>Sends:</strong> everything in Tier 2 + email/handle<br>
+      <strong>Value:</strong> tune for specific setups<br>
+      <strong>Rare:</strong> power users and beta testers only
+    </div>
+  </div>
+</div>
+
+<p style="font-size: 0.75rem; color: var(--muted); margin-top: 0.75rem; padding: 0.5rem; border: 1px solid var(--border); border-radius: 4px;">
+  <strong>Never collected:</strong> IP address (stripped at ingestion), location, OS/hardware beyond what user shares, anything without explicit per-submission consent. No telemetry. No phone-home. No analytics.
+</p>
+
+<!-- ════════════════════════════════════════════════ -->
+<h2>Feedback Data Schema</h2>
+
+<div class="schema">
+  <div class="schema-row" style="font-weight:600; border-bottom: 2px solid var(--border); padding-bottom: 0.4rem; margin-bottom: 0.3rem;">
+    <div class="schema-field">Field</div>
+    <div class="schema-type">Type</div>
+    <div class="schema-desc">Description</div>
+  </div>
+  <div class="schema-row"><div class="schema-field">submission_id</div><div class="schema-type">UUID</div><div class="schema-desc">Unique ID for deletion requests</div></div>
+  <div class="schema-row"><div class="schema-field">timestamp</div><div class="schema-type">ISO 8601</div><div class="schema-desc">When submitted</div></div>
+  <div class="schema-row"><div class="schema-field">source</div><div class="schema-type">enum</div><div class="schema-desc">"cli" | "space" | "app"</div></div>
+  <div class="schema-row"><div class="schema-field">version</div><div class="schema-type">string</div><div class="schema-desc">Pipeline version (e.g. "0.1.0")</div></div>
+  <div class="schema-row"><div class="schema-field">rating</div><div class="schema-type">int 1-5</div><div class="schema-desc">User quality rating</div></div>
+  <div class="schema-row"><div class="schema-field">issues[]</div><div class="schema-type">string[]</div><div class="schema-desc">"noisy", "robotic", "quiet", "loud", "thin", "muddy"</div></div>
+  <div class="schema-row"><div class="schema-field">device</div><div class="schema-type">string | null</div><div class="schema-desc">Recording device (optional)</div></div>
+  <div class="schema-row"><div class="schema-field">input_sr</div><div class="schema-type">int</div><div class="schema-desc">Input sample rate</div></div>
+  <div class="schema-row"><div class="schema-field">input_duration</div><div class="schema-type">float</div><div class="schema-desc">Duration in seconds</div></div>
+  <div class="schema-row"><div class="schema-field">input_lufs</div><div class="schema-type">float</div><div class="schema-desc">Measured input loudness</div></div>
+  <div class="schema-row"><div class="schema-field">output_lufs</div><div class="schema-type">float</div><div class="schema-desc">Measured output loudness</div></div>
+  <div class="schema-row"><div class="schema-field">pipeline_params</div><div class="schema-type">object</div><div class="schema-desc">Full DSP config used for this run</div></div>
+  <hr class="schema-divider">
+  <div class="schema-row"><div class="schema-field">has_audio</div><div class="schema-type">bool</div><div class="schema-desc">Whether audio files are included</div></div>
+  <div class="schema-row"><div class="schema-field">input_audio</div><div class="schema-type">Audio | null</div><div class="schema-desc">Raw input (Tier 2+ only)</div></div>
+  <div class="schema-row"><div class="schema-field">output_audio</div><div class="schema-type">Audio | null</div><div class="schema-desc">Enhanced output (Tier 2+ only)</div></div>
+  <hr class="schema-divider">
+  <div class="schema-row" style="color: var(--muted); font-style: italic;">
+    <div class="schema-field">input_snr_est</div><div class="schema-type">float</div><div class="schema-desc">Auto-computed: estimated input SNR (dB)</div>
+  </div>
+  <div class="schema-row" style="color: var(--muted); font-style: italic;">
+    <div class="schema-field">spectral_profile</div><div class="schema-type">object</div><div class="schema-desc">Auto-computed: {bass, mid, presence, air} energy in dB</div>
+  </div>
+  <div class="schema-row" style="color: var(--muted); font-style: italic;">
+    <div class="schema-field">noise_type_est</div><div class="schema-type">string</div><div class="schema-desc">Auto-computed: "room", "street", "wind", "hum", "clean"</div>
+  </div>
+  <div class="schema-row" style="color: var(--muted); font-style: italic;">
+    <div class="schema-field">dnsmos_score</div><div class="schema-type">float</div><div class="schema-desc">Auto-computed: blind quality estimate (1-5)</div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════ -->
+<h2>Real-Time Readiness Assessment</h2>
+
+<table class="readiness-table">
+  <thead>
+    <tr>
+      <th>Component</th>
+      <th>Current Latency</th>
+      <th>Real-Time?</th>
+      <th>Blocker?</th>
+      <th>Path Forward</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>DeepFilterNet3</strong></td>
+      <td>~3s / 2min (0.025x RT)</td>
+      <td><span class="tag success">Yes</span></td>
+      <td>No</td>
+      <td>Already has streaming API + LADSPA/VST plugin mode</td>
+    </tr>
+    <tr>
+      <td><strong>MossFormer2</strong></td>
+      <td>~7s / 2min (0.058x RT)</td>
+      <td><span class="tag danger">No</span></td>
+      <td><strong>Yes</strong></td>
+      <td>Batch model with 4s sliding windows. Need streaming alternative or prove DeepFilterNet + DSP is sufficient for live</td>
+    </tr>
+    <tr>
+      <td><strong>Pedalboard DSP</strong></td>
+      <td>~0.1s / 2min (instant)</td>
+      <td><span class="tag success">Yes</span></td>
+      <td>No</td>
+      <td>Built on JUCE &mdash; a real-time audio framework. Sample-level processing.</td>
+    </tr>
+    <tr>
+      <td><strong>LUFS + Limiter</strong></td>
+      <td>~0.05s / 2min (instant)</td>
+      <td><span class="tag warning">Partial</span></td>
+      <td>No</td>
+      <td>Needs windowed approximation instead of integrated measurement</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ════════════════════════════════════════════════ -->
+<h2>Dream State</h2>
+
+<div class="dream-state">
+  <div class="dream-node current">
+    <div class="label">Now</div>
+    <div class="text">280 lines on one laptop<br>One voice tested<br>No users</div>
+  </div>
+  <div class="dream-arrow">&rarr;</div>
+  <div class="dream-node">
+    <div class="label">Phase 1</div>
+    <div class="text">pip install cleanfeed<br>One command<br>It just works</div>
+  </div>
+  <div class="dream-arrow">&rarr;</div>
+  <div class="dream-node">
+    <div class="label">Phase 2</div>
+    <div class="text">HuggingFace demo<br>Real feedback<br>Pipeline hardens</div>
+  </div>
+  <div class="dream-arrow">&rarr;</div>
+  <div class="dream-node">
+    <div class="label">Phase 3</div>
+    <div class="text">Semantic controls<br>AI profiles<br>Better Audacity</div>
+  </div>
+  <div class="dream-arrow">&rarr;</div>
+  <div class="dream-node">
+    <div class="label">End State</div>
+    <div class="text">Real-time on-device<br>System audio filter<br>Your ears never suffer</div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════ -->
+<div class="footer">
+  <span>Project Resonance &mdash; System Architecture v1</span>
+  <span>Generated 2026-04-01 &bull; 100% local, privacy-first</span>
+</div>
+
+</body>
+</html>
