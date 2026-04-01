@@ -10,6 +10,7 @@ import tempfile
 import torch
 import torchaudio
 
+from engine import OUTPUT_SR
 from processor import process_audio, shutdown_engine
 
 SUPPORTED_EXTENSIONS = {".wav", ".m4a", ".mp3", ".mp4", ".flac", ".ogg", ".aac"}
@@ -73,7 +74,7 @@ def main() -> None:
                     "-i",
                     args.input,
                     "-ar",
-                    "16000",
+                    str(OUTPUT_SR),
                     "-ac",
                     "1",
                     temp_wav.name,

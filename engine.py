@@ -28,14 +28,16 @@ if not hasattr(torchaudio, "backend"):
     torchaudio.backend = backend_module
 
 import logging
+import os
+import tempfile
 
 import numpy as np
-import onnxruntime as ort
 import pyloudnorm as pyln
+import soundfile as sf
 import torch
+from clearvoice import ClearVoice
 from df.enhance import enhance as df_enhance
 from df.enhance import init_df
-from huggingface_hub import hf_hub_download
 from pedalboard import (
     Compressor,
     HighpassFilter,
@@ -48,22 +50,26 @@ from pedalboard import (
 
 logger = logging.getLogger(__name__)
 
+OUTPUT_SR = 48000
+LUFS_TARGET = -18.0
+LIMITER_CEILING_DB = -1.5
+
 
 class PodcastEngine:
+    """5-stage pipeline: DeepFilterNet → MossFormer2 → Pedalboard DSP → LUFS → Limiter."""
+
     def __init__(self) -> None:
         logger.info("Loading DeepFilterNet3...")
         self._df_model, self._df_state, _ = init_df()
         self._df_sr = self._df_state.sr()
         logger.info("DeepFilterNet3 loaded (sr=%d)", self._df_sr)
 
-        logger.info("Loading FlashSR ONNX model...")
-        model_path = hf_hub_download(
-            repo_id="YatharthS/FlashSR",
-            filename="model.onnx",
-            subfolder="onnx",
+        logger.info("Loading MossFormer2_SE_48K...")
+        self._clearvoice = ClearVoice(
+            task="speech_enhancement",
+            model_names=["MossFormer2_SE_48K"],
         )
-        self._sr_session = ort.InferenceSession(model_path)
-        logger.info("FlashSR loaded")
+        logger.info("MossFormer2_SE_48K loaded")
 
         self._mastering = Pedalboard(
             [
@@ -76,58 +82,87 @@ class PodcastEngine:
                 HighShelfFilter(cutoff_frequency_hz=10000, gain_db=2.0, q=0.7),
             ]
         )
-        self._limiter = Pedalboard([Limiter(threshold_db=-1.5)])
+        self._limiter = Pedalboard([Limiter(threshold_db=LIMITER_CEILING_DB)])
         logger.info("Mastering chain ready")
 
     def enhance(self, audio_tensor: torch.Tensor, sample_rate: int) -> tuple[torch.Tensor, int]:
+        """Run the full enhancement pipeline.
+
+        Args:
+            audio_tensor: 1D mono float32 tensor.
+            sample_rate: Input sample rate.
+
+        Returns:
+            (enhanced_tensor, output_sample_rate) — 1D mono tensor at 48kHz.
+        """
         if audio_tensor.ndim != 1:
             raise ValueError("audio_tensor must be 1D mono")
 
         audio_tensor = audio_tensor.detach().flatten().to(dtype=torch.float32).cpu().contiguous()
         logger.info(
-            "Starting enhancement for %d samples at %d Hz",
+            "Starting enhancement: %d samples at %d Hz (%.1fs)",
             audio_tensor.numel(),
             sample_rate,
+            audio_tensor.numel() / sample_rate,
         )
 
+        # --- Stage 1: DeepFilterNet3 noise suppression ---
         if sample_rate != self._df_sr:
-            logger.info("Resampling input from %d Hz to %d Hz for DeepFilterNet", sample_rate, self._df_sr)
+            logger.info("Resampling %d → %d Hz for DeepFilterNet", sample_rate, self._df_sr)
             audio_tensor = torchaudio.functional.resample(audio_tensor, sample_rate, self._df_sr)
 
-        audio_2d = audio_tensor.unsqueeze(0)
-        denoised = df_enhance(self._df_model, self._df_state, audio_2d)
+        denoised = df_enhance(self._df_model, self._df_state, audio_tensor.unsqueeze(0))
+        denoised_1d = denoised.squeeze(0).detach().cpu().contiguous()
         logger.info("Stage 1 complete: DeepFilterNet denoise")
 
-        denoised_16k = torchaudio.functional.resample(
-            denoised.squeeze(0).detach().cpu().contiguous(),
-            self._df_sr,
-            16000,
-        )
-        sr_input = denoised_16k.numpy().astype(np.float32, copy=False)[np.newaxis, :]
-        sr_output = self._sr_session.run(["reconstruction"], {"audio_values": sr_input})[0]
-        audio_np = np.ascontiguousarray(sr_output.astype(np.float32, copy=False))
-        logger.info("Stage 2 complete: FlashSR super-resolution")
+        # --- Stage 2: MossFormer2 speech enhancement ---
+        # File I/O mode handles internal segmentation for long audio
+        # (t2t mode OOMs on MPS for >60s)
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_in:
+                tmp_path = tmp_in.name
+                sf.write(tmp_path, denoised_1d.numpy(), self._df_sr)
+            result_dict = self._clearvoice(tmp_path)
+        finally:
+            if tmp_path is not None:
+                os.unlink(tmp_path)
 
-        mastered = self._mastering(audio_np, sample_rate=48000, reset=True)
+        if isinstance(result_dict, dict):
+            enhanced_np = list(result_dict.values())[0]
+        elif isinstance(result_dict, np.ndarray):
+            enhanced_np = result_dict
+        elif isinstance(result_dict, torch.Tensor):
+            enhanced_np = result_dict.numpy()
+        else:
+            enhanced_np = np.array(result_dict, dtype=np.float32)
+
+        enhanced_np = np.ascontiguousarray(enhanced_np.astype(np.float32, copy=False))
+        if enhanced_np.ndim == 1:
+            enhanced_np = enhanced_np[np.newaxis, :]
+        logger.info("Stage 2 complete: MossFormer2 enhance")
+
+        # --- Stage 3: Pedalboard DSP mastering ---
+        mastered = self._mastering(enhanced_np, sample_rate=OUTPUT_SR, reset=True)
         logger.info("Stage 3 complete: DSP mastering")
 
+        # --- Stage 4: LUFS normalization ---
         mono = np.ascontiguousarray(mastered[0].astype(np.float64, copy=False))
-        meter = pyln.Meter(48000)
+        meter = pyln.Meter(OUTPUT_SR)
         loudness = meter.integrated_loudness(mono)
         if np.isfinite(loudness):
-            normalized = pyln.normalize.loudness(mono, loudness, -16.0).astype(np.float32)
+            normalized = pyln.normalize.loudness(mono, loudness, LUFS_TARGET).astype(np.float32)
+            logger.info("Stage 4 complete: LUFS %.1f → %.1f", loudness, LUFS_TARGET)
         else:
-            logger.warning("LUFS non-finite, skipping normalization")
+            logger.warning("LUFS non-finite (%.2f), skipping normalization", loudness)
             normalized = mono.astype(np.float32)
 
-        limited = self._limiter(normalized[np.newaxis, :], sample_rate=48000, reset=True)
-        logger.info("Stage 4 complete: LUFS normalization + limiter")
+        # --- Stage 5: Brick-wall limiter ---
+        limited = self._limiter(normalized[np.newaxis, :], sample_rate=OUTPUT_SR, reset=True)
+        logger.info("Stage 5 complete: Limiter at %.1f dB", LIMITER_CEILING_DB)
 
         result = torch.from_numpy(np.ascontiguousarray(limited[0]))
-        return result, 48000
-
-
-ResembleEngine = PodcastEngine
+        return result, OUTPUT_SR
 
 
 def shutdown_engine() -> None:

@@ -164,14 +164,39 @@ DeepFilterNet3 (noise kill) → MossFormer2 (enhance) → Pedalboard (master) �
 
 **Remaining gap:** Studio mic character — proximity effect warmth (80-250Hz), harmonic saturation/richness, voice-specific EQ tuning. This is the "last mile" problem — the difference between clean audio and audio that sounds like it was recorded on a $500 condenser mic.
 
-## Phase 8: The Last Mile (NEXT)
+## Phase 8: The Last Mile — Integration & Studio Character Experiments (2026-04-01)
 
-Candidates for closing the remaining 15%:
-- **Proximity effect simulation** — low-shelf warmth boost tuned for voice
-- **Harmonic saturation** — subtle tube/tape saturation (pedalboard has no saturation, may need a VST plugin loaded via pedalboard's VST3 loader)
-- **FINALLY (Samsung, NeurIPS 2024)** — unofficial implementation exists, claims "studio-like quality" from any input
-- **Voice-specific EQ** — analyze the recording's spectral profile and tune EQ to complement rather than generic settings
-- **Stereo widening / room simulation** — subtle early reflections that add "space" without muddiness
+### Code Integration (v6)
+
+Integrated the v5 pipeline (previously a standalone test script) into the proper codebase:
+- **engine.py** — replaced FlashSR with MossFormer2_SE_48K via ClearVoice. LUFS target adjusted from -16 to -18. Uses ClearVoice file I/O mode (not tensor-to-tensor) because t2t mode OOMs on MPS for >60s audio — file I/O mode handles internal 4s sliding-window segmentation.
+- **processor.py** — removed OLA chunking entirely (115 → 55 lines). Both DeepFilterNet and MossFormer2 handle their own segmentation, so external chunking was redundant and caused artifacts.
+- **cli.py** — ffmpeg conversion target changed from 16kHz to 48kHz to match the pipeline's native sample rate.
+
+### FINALLY Research (Dead End)
+
+Investigated Samsung's FINALLY (NeurIPS 2024) via the inverse-ai/FINALLY-Speech-Enhancement repo:
+- **No pretrained weights available.** Training from scratch requires multi-GPU, LibriTTS-R + DAPS-clean datasets, and a 3-stage pipeline with known NaN stability issues.
+- **Voice identity risk.** Generative GAN approach can shift accents and change speaker voice in low-SNR regions. Dealbreaker for podcast use.
+- **MOS > ground truth (4.63 vs 4.56)** — model adds aesthetic coloration, not faithful restoration. Same fundamental problem as resemble-enhance CFM.
+- **One interesting idea:** learnable 16→48kHz upsampling (Upsample WaveUNet). Could be explored as a standalone module later.
+
+### Studio Mic Character Experiments (Ruled Out)
+
+Tested two DSP approaches to close the "studio mic character" gap:
+
+**A) Proximity effect + soft-clip saturation (tanh):** Symmetric waveshaping, odd harmonics only. Result: voice sounds "sleepy/meditative" — rounds off transients, removes speech energy. Good for ambient content, wrong for podcasts.
+
+**B) Proximity effect + tube simulation (asymmetric waveshaping):** Even + odd harmonics, models vacuum tube nonlinearity. Result: adds warmth/body at subtle settings, but even conservative parameters (drive=1.5, bias=0.15) sounded like added coloration rather than natural quality improvement. At higher settings, sounds like a cheap old wired mic.
+
+**Key finding: MossFormer2 already does its own spectral enhancement.** Layering proximity + saturation on top of an already-enhanced signal adds coloration to coloration. The clean v6 pipeline (no studio character) consistently sounded best in A/B testing. The "last 15%" gap may be smaller than estimated, or it requires a fundamentally different approach (learned upsampling, voice-specific fine-tuning) rather than DSP post-processing.
+
+**v6 is the final pipeline:**
+```
+Input (.m4a/.wav/any) → ffmpeg 48kHz mono → DeepFilterNet3 (denoise) → MossFormer2 (enhance) → Pedalboard DSP (HPF/EQ/compress/de-ess/presence/air) → LUFS -18 → Limiter -1.5dB → Output
+```
+
+Processing time: ~14s for 2 minutes of audio on Apple M4.
 
 ## Version History
 
@@ -183,24 +208,30 @@ Candidates for closing the remaining 15%:
 | v2 | resemble-enhance denoise + Pedalboard | 75-80%, noise still present |
 | v3 | DeepFilterNet + FlashSR + Pedalboard | Popping at chunk boundaries |
 | v4 | MossFormer2 + Pedalboard | Good but noise returned |
-| v5 | DeepFilterNet + MossFormer2 + Pedalboard | ~85%, noise gone, lacking studio character |
+| v5 | DeepFilterNet + MossFormer2 + Pedalboard | ~85%, noise gone, standalone script |
+| v6 | v5 integrated into engine.py + processor.py | Production-ready, ~85-90% |
+| v6+sat | v6 + proximity + saturation (softclip/tube) | Ruled out — coloration, not improvement |
 
 ## What We Learned (Updated)
 
 1. **Generative ≠ better.** For decent input audio, discriminative models beat generative re-synthesizers.
 
-2. **MPS is not CUDA.** Iterative ODE solvers produce noise on Apple MPS.
+2. **MPS is not CUDA.** Iterative ODE solvers produce noise on Apple MPS. Single-pass models (DeepFilterNet, MossFormer2) work fine.
 
-3. **Order matters.** The professional podcast chain is 8 steps in a specific order.
+3. **Order matters.** The professional podcast chain is 8 steps in a specific order. Signal chain is non-commutative: saturation→compression ≠ compression→saturation.
 
 4. **Purpose-built > general-purpose.** DeepFilterNet (1M params) outperformed resemble-enhance denoiser (10M params).
 
 5. **No limiter = tearing.** Raw model output needs dynamic range control.
 
-6. **Chunking creates artifacts.** Processing the full file in one pass (MossFormer2, DeepFilterNet) is better than OLA chunking when the model supports it. FlashSR's chunk-by-chunk super-resolution caused popping.
+6. **Chunking creates artifacts.** Processing full files in one pass is better than OLA chunking when the model supports it.
 
-7. **Two specialized models > one generalist.** DeepFilterNet (noise only) + MossFormer2 (enhance only) outperformed MossFormer2 alone. Each model does its one job well.
+7. **Two specialized models > one generalist.** DeepFilterNet (noise only) + MossFormer2 (enhance only) outperformed either alone.
 
-8. **Dependency pinning is the real enemy.** AudioSR, resemble-enhance, and ClearVoice all pin stale numpy/librosa versions. More time was spent fighting dependency conflicts than writing code.
+8. **Dependency pinning is the real enemy.** More time fighting dependency conflicts than writing code.
 
-9. **The last 15% is mic physics, not algorithms.** The gap between "clean" and "studio quality" is proximity effect, harmonic richness, and transient detail — things a phone mic physically cannot capture. Closing this gap requires either generative modeling (FINALLY) or DSP simulation (saturation, room modeling).
+9. **Don't layer enhancement on enhancement.** MossFormer2 already does spectral shaping. Adding DSP saturation/proximity on top of it adds coloration, not quality. The clean pipeline is the best pipeline.
+
+10. **Generative models are a voice identity risk.** FINALLY (Samsung, NeurIPS 2024) achieves MOS scores above ground truth but can shift accents and change speaker voice. For content where voice identity matters, discriminative models are safer.
+
+11. **ClearVoice tensor-to-tensor mode OOMs on long audio.** File I/O mode handles internal segmentation (4s sliding windows). Always use file I/O for production; t2t only for short clips.

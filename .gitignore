@@ -3,6 +3,12 @@ __pycache__/
 *.pyc
 .venv/
 
+# macOS
+.DS_Store
+
+# Model checkpoints
+checkpoints/
+
 # Audio test outputs (generated, not source)
 *.wav
 *.m4a
