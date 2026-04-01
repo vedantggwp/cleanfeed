@@ -1,37 +1,15 @@
-import types
-import sys
-import torchaudio
+"""5-stage audio enhancement pipeline.
 
-if not hasattr(torchaudio, "backend"):
-    backend_module = types.ModuleType("torchaudio.backend")
-    common_module = types.ModuleType("torchaudio.backend.common")
-
-    class AudioMetaData:
-        def __init__(
-            self,
-            sample_rate: int = 0,
-            num_frames: int = 0,
-            num_channels: int = 0,
-            bits_per_sample: int = 0,
-            encoding: str = "",
-        ) -> None:
-            self.sample_rate = sample_rate
-            self.num_frames = num_frames
-            self.num_channels = num_channels
-            self.bits_per_sample = bits_per_sample
-            self.encoding = encoding
-
-    common_module.AudioMetaData = AudioMetaData
-    backend_module.common = common_module
-    sys.modules["torchaudio.backend"] = backend_module
-    sys.modules["torchaudio.backend.common"] = common_module
-    torchaudio.backend = backend_module
+DeepFilterNet3 → MossFormer2 → Pedalboard DSP → LUFS → Limiter.
+Pure tensor/numpy in, tensor out. Zero filesystem I/O.
+"""
 
 import logging
 
 import numpy as np
 import pyloudnorm as pyln
 import torch
+import torchaudio
 from clearvoice import ClearVoice
 from df.enhance import enhance as df_enhance
 from df.enhance import init_df
@@ -44,7 +22,6 @@ from pedalboard import (
     Pedalboard,
 )
 
-
 logger = logging.getLogger(__name__)
 
 OUTPUT_SR = 48000
@@ -52,7 +29,7 @@ LUFS_TARGET = -18.0
 LIMITER_CEILING_DB = -1.5
 
 
-class PodcastEngine:
+class Engine:
     """5-stage pipeline: DeepFilterNet → MossFormer2 → Pedalboard DSP → LUFS → Limiter."""
 
     def __init__(self) -> None:
@@ -113,7 +90,6 @@ class PodcastEngine:
         logger.info("Stage 1 complete: DeepFilterNet denoise")
 
         # --- Stage 2: MossFormer2 speech enhancement ---
-        # Numpy mode: direct array pass, no temp files. torch.no_grad() prevents OOM.
         cv_input = denoised_1d.numpy().astype(np.float32)[np.newaxis, :]
         with torch.no_grad():
             cv_result = self._clearvoice(cv_input)
@@ -151,9 +127,3 @@ class PodcastEngine:
 
         result = torch.from_numpy(np.ascontiguousarray(limited[0]))
         return result, OUTPUT_SR
-
-
-def shutdown_engine() -> None:
-    if torch.backends.mps.is_available():
-        torch.mps.empty_cache()
-    logger.info("Engine shutdown complete.")

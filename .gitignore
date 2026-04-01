@@ -1,7 +1,14 @@
 # Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
 .venv/
+.bench-venv/
 
 # macOS
 .DS_Store
@@ -9,12 +16,19 @@ __pycache__/
 # Model checkpoints
 checkpoints/
 
-# Audio test outputs (generated, not source)
+# Audio files (generated)
+benchmark_outputs/
 *.wav
-*.m4a
 
-# uv lock
-uv.lock
+# Keep demo audio
+!demo/before.wav
+!demo/after.wav
 
-# Research outputs
+# Test/research artifacts
+.pytest_cache/
+.coverage
+htmlcov/
 research/
+
+# uv
+uv.lock

@@ -4,18 +4,18 @@
 
 ## Sprint 1: Benchmark + Validate
 
-- [ ] **1.1** Benchmark DPDFNet vs DeepFilterNet3 on recording.m4a — compare quality, speed, API
-- [ ] **1.2** Test ClearVoice Numpy2Numpy API — eliminate temp file I/O if no OOM
-- [ ] **1.3** Write `docs/benchmarks.md` — decision record for denoiser choice
-- [ ] **1.4** Update engine.py with winning stack, verify no regressions
+- [x] **1.1** Benchmark DPDFNet vs DeepFilterNet3 on recording.m4a — DeepFilterNet3 wins (2.5x faster, preferred in A/B)
+- [x] **1.2** Test ClearVoice Numpy2Numpy API — 3.2x faster, no OOM, switched to numpy mode
+- [x] **1.3** Write `docs/benchmarks.md` — decision record for denoiser choice
+- [x] **1.4** Update engine.py with winning stack — removed temp file I/O, added torch.no_grad()
 
 ## Sprint 2: Package as cleanfeed
 
-- [ ] **2.1** Restructure flat files → `cleanfeed/` package (engine, processor, cli, app, _compat, presets)
-- [ ] **2.2** Public API: `cleanfeed.enhance()`, `cleanfeed.Engine()`, `__init__.py`
-- [ ] **2.3** pyproject.toml — name, entry points, classifiers, dependency cleanup
-- [ ] **2.4** Lower Python floor to 3.11 — test compatibility
-- [ ] **2.5** pytest suite — unit (compat, presets), integration (engine, processor), E2E (CLI, public API)
+- [x] **2.1** Restructure flat files → `cleanfeed/` package (engine, processor, cli, app, _compat)
+- [x] **2.2** Public API: `cleanfeed.enhance()`, `cleanfeed.Engine()`, `__init__.py`
+- [x] **2.3** pyproject.toml — name, entry points, classifiers, dependency cleanup, gradio optional
+- [x] **2.4** Lower Python floor to 3.11 — done in pyproject.toml
+- [x] **2.5** pytest suite — 19 tests (3 unit, 11 integration, 5 E2E), all passing
 - [ ] **2.6** GitHub repo `ved-labs/cleanfeed` + README with before/after audio demos
 - [ ] **2.7** First PyPI release: `pip install cleanfeed` v0.1.0
 

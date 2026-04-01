@@ -1,16 +1,56 @@
 [project]
-name = "project-resonance"
+name = "cleanfeed"
 version = "0.1.0"
-requires-python = ">=3.13"
+description = "Local AI audio restoration. Phone recording → podcast quality."
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "Ved", email = "vedant.g26@gmail.com" }]
+keywords = ["audio", "restoration", "podcast", "denoising", "speech-enhancement"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Sound/Audio",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+]
 dependencies = [
     "clearvoice>=0.1.2",
     "deepfilternet>=0.5.6",
-    "gradio>=6.10.0",
     "numpy<2.0",
-    "onnxruntime>=1.24.4",
     "pedalboard>=0.9.22",
     "pyloudnorm>=0.2.0",
     "torch>=2.1.0",
     "torchaudio>=2.1.0",
     "torchcodec>=0.11.0",
 ]
+
+[project.optional-dependencies]
+ui = ["gradio>=6.10.0"]
+
+[project.scripts]
+cleanfeed = "cleanfeed.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/ved-labs/cleanfeed"
+Issues = "https://github.com/ved-labs/cleanfeed/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-cov>=7.1.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["slow: marks tests that load ML models (deselect with '-m not slow')"]

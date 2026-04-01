@@ -1,10 +1,18 @@
 # Manifest
 
-## Key Files
-- `engine.py` — 5-stage pipeline: DeepFilterNet → MossFormer2 → Pedalboard → LUFS → Limiter
-- `processor.py` — Audio loader, mono conversion, engine passthrough, file save
-- `cli.py` — CLI interface with ffmpeg format conversion
-- `app.py` — Gradio web UI with A/B comparison player
+## Package (cleanfeed/)
+- `cleanfeed/__init__.py` — Public API: enhance(), Engine, process_audio, shutdown_engine
+- `cleanfeed/_compat.py` — Torchaudio backend compatibility shim
+- `cleanfeed/engine.py` — 5-stage pipeline: DeepFilterNet → MossFormer2 → Pedalboard → LUFS → Limiter
+- `cleanfeed/processor.py` — Audio loader, mono conversion, engine passthrough, file save
+- `cleanfeed/cli.py` — CLI interface with ffmpeg format conversion
+- `cleanfeed/app.py` — Gradio web UI with A/B comparison player
+
+## Legacy (flat files, superseded by cleanfeed/)
+- `engine.py` — Old engine (now in cleanfeed/engine.py)
+- `processor.py` — Old processor (now in cleanfeed/processor.py)
+- `cli.py` — Old CLI (now in cleanfeed/cli.py)
+- `app.py` — Old app (now in cleanfeed/app.py)
 - `JOURNEY.md` — Full build log from idea to working pipeline (Phases 1-8)
 - `CLAUDE.md` — Agent identity, architecture rules, execution protocol
 - `docs/architecture.md` — System architecture and module definitions
@@ -24,9 +32,15 @@
 - `diagnose.py` — Layer-by-layer diagnostic (MPS vs CPU, denoise vs enhance)
 - `sweep.py` — resemble-enhance 7-config parameter sweep
 
+## Benchmark Scripts
+- `benchmark_denoisers.py` — DPDFNet vs DeepFilterNet3 isolated comparison
+- `benchmark_clearvoice_numpy.py` — ClearVoice file I/O vs numpy mode comparison
+- `benchmark_pipeline.py` — Full pipeline A/B: DeepFilterNet3 vs DPDFNet-2 48kHz
+
 ## Planning & Documentation
 - `TODOS.md` — Full task list: Sprints 1-5, dependency graph, research findings
 - `docs/system-architecture.html` — Visual system architecture (open in browser)
+- `docs/benchmarks.md` — Benchmark results and decision record (Sprint 1)
 
 ## Recent Changes
 - 2026-04-01: Product named `cleanfeed` — PyPI available, no trademark conflicts
@@ -39,3 +53,7 @@
 - 2026-04-01: Updated `docs/tasks.md` — Phase 8 complete
 - 2026-04-01: Updated `JOURNEY.md` — Phase 8 with FINALLY research and saturation experiments
 - 2026-04-01: Created `MANIFEST.md`
+- 2026-04-01: Sprint 1 complete — benchmarked DPDFNet (rejected), switched ClearVoice to numpy mode (3.2x faster)
+- 2026-04-01: Updated `engine.py` — removed temp file I/O, uses ClearVoice numpy mode with torch.no_grad()
+- 2026-04-01: Created `docs/benchmarks.md` — full decision record with timing data
+- 2026-04-01: Sprint 2 — restructured into `cleanfeed/` package, public API, pyproject.toml, 19 tests passing
